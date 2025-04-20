@@ -17,6 +17,7 @@ const schema = new mongoose.Schema({
     status: String,
     videoUrl: String,
     audioUrl: String,
+    publicUrl : String,
     fileName : String,
     quiz: [quizSchema]
   }, 
