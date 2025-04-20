@@ -218,6 +218,7 @@ export const generateVideo = async (req: Request,res:Response)=>{
            const newVideo = await Video.insertMany([{
             scriptTitle : title,
             fileName : title.replaceAll(' ', '_').toLowerCase(),
+            publicUrl : `${process.env.R2_DEV_URL}/${title.replaceAll(' ', '_').toLowerCase()}.mp4`,
             scriptContent : scriptText,
             quiz : quizQuestions,
             videoId : data.id,
