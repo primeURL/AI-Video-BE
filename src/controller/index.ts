@@ -256,7 +256,8 @@ export const webhookVideoGeneration = async (req: Request,res:Response) => {
       if(record){
         record.status = data.status
         record.videoUrl = data.result_url
-        record.audioUrl = data.audio_url,
+        record.audioUrl = data.audio_url
+        record.videoDuration = data.duration
         record.updatedAt = new Date()
         const response = await axios({
           method: 'GET',
