@@ -1,54 +1,15 @@
 import { Request,Response } from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import {Video} from '../models/Video'
-import { uploadToR2 } from "../utils";
+import { extractAndCleanScript, uploadToR2 } from "../utils";
 import axios from 'axios'
 
 const anthropic = new Anthropic();
 
-function extractAndCleanScript(script : string){
-    const scriptRegex = /<script>([\s\S]*?)<\/script>/;
-    const scriptMatch = script.match(scriptRegex);
-    let scriptText = scriptMatch ? scriptMatch[1].trim() : '';
 
-    // Remove quizzes for now
-    const quizRegex = /\[Quiz[^\]]*?\]\s*({[\s\S]*?})/g;
-    const quizzes = [];
-    let match;
-
-    while ((match = quizRegex.exec(scriptText)) !== null) {
-    const rawJson = match[1];
-    const fixedJson = rawJson
-        .replace(/(\w+):/g, '"$1":')
-        .replace(/,\s*}/g, '}')
-        .replace(/,\s*]/g, ']');
-
-    try {
-        quizzes.push(JSON.parse(fixedJson));
-    } catch (err) {
-        console.error("Parsing error:", err);
-    }
-    }
-
-    scriptText = scriptText
-    .replace(quizRegex, '') // Remove quizzes
-    .replace(/<quiz>|<\/quiz>/gi, '')
-    .replace(/\n+/g, ' ')    // Remove all newlines
-    .replace(/\s+/g, ' ')    // Collapse multiple spaces
-    // Add newlines after certain phrases
-    .replace(/(Let Me Introduce.*?)\s/g, '$1\n')
-    .replace(/(Subtopic \d+:.*?)\s/g, '$1\n')
-    .replace(/(Here is the summary.*?)\s/g, '$1\n')
-    .trim();
-
-    return {
-        scriptText,
-        quizQuestions : JSON.parse(JSON.stringify((quizzes)))
-    }
-}
 
 const systemPromt = `You are excellent script writer. You are tasked with creating a script for an educational video on the topic provided. The script should be engaging, informative, and include interactive elements. Follow these guidelines to create a comprehensive script.
-Script Length should be in range 2000 to 2500 characters`
+Script Length should be in range 1000 to 1500 characters`
 
 export const generateVideo = async (req: Request,res:Response)=>{
     try {
@@ -97,12 +58,12 @@ export const generateVideo = async (req: Request,res:Response)=>{
             </topic>
     
             Your script should include the following sections:
-            1. Short and Engaging Introduction (20 to 30 words)
-            2. Main Content with Explanations and Analogies(50 to 80 words)
-            3. Short Summary (20 to 35 words)
-            4. After completion a sentence or subtopic add 0.5 sec pause.Add tag <break time="500ms"/>. 
-            6. After Sentence Completion add tag <break time="150ms"/>. 
-            5. MCQ Quizzes after each subtopic,see MQC pattern below.
+            1. Short and Engaging Introduction (15 to 30 words)
+            2. Main Content with Explanations and Analogies(40 to 60 words)
+            3. Short Summary (10 to 20 words)
+            4. Add <break time="100ms"/> after each subtopic or sentence completion. 
+            6. After Sentence Completion add tag <break time="100ms"/>. 
+            5. Include MCQ quizzes after each subtopic (see quiz format below).
             
     
             For each section, follow these instructions:
@@ -113,7 +74,7 @@ export const generateVideo = async (req: Request,res:Response)=>{
             - Outline what the video will cover
     
             2. Main Content:
-            - Break down the topic into 2 subtopics
+            - Break down the topic into 1 subtopics
             - For each subtopic:
                 a) Provide a clear explanation
                 b) Use analogies to make complex concepts more understandable
@@ -130,32 +91,30 @@ export const generateVideo = async (req: Request,res:Response)=>{
     
             Format your output as follows:
             <script>
-            Let Me Introduce the topic
+            Let Me Introduce the topic <break />
             (Write the short introduction here)
     
             Let's start with the Topic
             Subtopic 1: (Title)
             (Explanation, analogies, and examples for subtopic 1)
     
-            [Quiz - Timestamp: MM:SS]
-             {
+            <quiz>{
                 timestamp: 15,
                 question: "What do plants absorb from the sun?",
                 options: ["Oxygen", "Light", "Water"],
                 correct: "Light",
-            },
-    
+            }</quiz>
+
             Subtopic 2: (Title)
             (Explanation, analogies, and examples for subtopic 2)
     
-            [Quiz - Timestamp: MM:SS]
-            {
+            <quiz>{
             timestamp: 15,
             question: "What do plants absorb from the sun?",
             options: ["Oxygen", "Light", "Water"],
             correct: "Light",
-            },    
-    
+            }</quiz>
+
             (Continue this pattern for all subtopics)
     
             Here is the summary of the video:
@@ -181,7 +140,7 @@ export const generateVideo = async (req: Request,res:Response)=>{
           // llmResponse = "Here is the script for an educational video on photosynthesis in plants:\n\n<script>\nLet me introduce the fascinating process of photosynthesis in plants. <break time=\"500ms\"/> \nPhotosynthesis is a crucial process that enables plants to convert sunlight into energy, providing the foundation for life on Earth. <break time=\"500ms\"/>\nIn this video, we'll explore how plants harness the power of the sun to create their own food. <break time=\"150ms\"/>\n\nLet's start with the topic\nSubtopic 1: The Ingredients of Photosynthesis\nPlants need three key ingredients for photosynthesis: sunlight, carbon dioxide, and water. <break time=\"500ms\"/>\nImagine the plant as a tiny kitchen, with sunlight as the power source, carbon dioxide as the raw ingredient, and water as the secret sauce. <break time=\"500ms\"/>\nThe plant's leaves act like solar panels, capturing sunlight and kickstarting the photosynthesis process. <break time=\"150ms\"/> \n\n<quiz>\n[Quiz - Timestamp: 01:05]\n{\n  timestamp: 65,\n  question: \"What are the three key ingredients plants need for photosynthesis?\",\n  options: [\"Sunlight, oxygen, and soil\", \"Sunlight, carbon dioxide, and water\", \"Carbon dioxide, water, and nutrients\", \"Oxygen, water, and sunlight\"],\n  correct: \"Sunlight, carbon dioxide, and water\",\n}\n</quiz>\n\nSubtopic 2: The Photosynthesis Process\nInside the plant's leaves are tiny structures called chloroplasts, which contain a green pigment called chlorophyll. <break time=\"500ms\"/>\nChlorophyll absorbs sunlight, which energizes electrons and sets off a chain reaction. <break time=\"500ms\"/>  \nThis energy is used to convert carbon dioxide and water into glucose, a simple sugar that plants use for food. <break time=\"500ms\"/>\nAs a bonus, oxygen is released as a byproduct, which we breathe in. <break time=\"150ms\"/>\n\n<quiz>\n[Quiz - Timestamp: 02:15] \n{\n  timestamp: 135,\n  question: \"What is the green pigment in plant leaves that absorbs sunlight?\",\n  options: [\"Chlorine\", \"Chlorophyll\", \"Chloroplast\", \"Chloroform\"],\n  correct: \"Chlorophyll\",\n}\n</quiz>\n\nHere is a summary of the video:\nPhotosynthesis is the process by which plants use sunlight, carbon dioxide, and water to create their own food. <break time=\"500ms\"/>\nChlorophyll in the plant's leaves absorbs sunlight, triggering a chemical reaction that converts carbon dioxide and water into glucose and releases oxygen as a byproduct. <break time=\"500ms/> \nThis process forms the foundation of life on Earth, providing energy for plants and oxygen for other organisms. <break time=\"150ms\"/>\n</script>"
           const{scriptText,quizQuestions} = extractAndCleanScript(llmResponse)
           // console.log(scriptText,quizQuestions)
-          
+     
          
           const options = {
             method: 'POST',
@@ -191,14 +150,17 @@ export const generateVideo = async (req: Request,res:Response)=>{
               authorization: `Basic ${process.env.DID_API_KEY}` // Add your API key here if required
             },
             body: JSON.stringify({
-              source_url: 'https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg',
+              // source_url: 'https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg',
+              source_url: 'https://clips-presenters.d-id.com/v2/alyssa_red_suite_green_screen/46XonMxLFm/LRjggU94ze/image.png',
               script: {
                 type: 'text',
-                ssml: 'true', // <-- enable SSML support
+                ssml: true, // <-- enable SSML support
                 subtitles: 'false',
                 provider: {
-                  type: 'playHT',
-                  voice_id: 's3://voice-cloning-zero-shot/1f44b3e7-22ea-4c2e-87d0-b4d9c8f1d47d/sophia/manifest.json'
+                  // type: 'playHT',
+                  // voice_id: 's3://voice-cloning-zero-shot/1f44b3e7-22ea-4c2e-87d0-b4d9c8f1d47d/sophia/manifest.json'
+                  type: 'microsoft',
+                  voice_id: 'en-US-AvaMultilingualNeural'
                 },
                 input: scriptText
               },
@@ -222,12 +184,13 @@ export const generateVideo = async (req: Request,res:Response)=>{
             scriptContent : scriptText,
             quiz : quizQuestions,
             videoId : data.id,
-            status : data.status
+            status : data.status,
+            videoType : type
           }])
           
         res.status(200).json({
            msg : "Video Generation Started",
-           data : 'newVideo',
+           data : newVideo,
          })
          return;
          
@@ -238,7 +201,6 @@ export const generateVideo = async (req: Request,res:Response)=>{
     }
    
 }
-
 
 export const webhookVideoGeneration = async (req: Request,res:Response) => {
     try {
@@ -268,7 +230,7 @@ export const webhookVideoGeneration = async (req: Request,res:Response) => {
   
         const contentType = response.headers['content-type'] || 'video/mp4';
   
-        await uploadToR2(response.data, record.fileName, contentType);
+        await uploadToR2(response.data, `${record.fileName}.mp4`, contentType);
         await record.save()
       }
 
@@ -289,6 +251,7 @@ export const webhookVideoGeneration = async (req: Request,res:Response) => {
 
 export const getAllGeneratedVideos = async(req: Request,res:Response) =>{
     try {
+        console.log('getAllGeneratedVideos',getAllGeneratedVideos)
         const videos = await Video.find({}).sort({createdAt : -1})
         res.status(200).json({
             msg : "All Videos",
